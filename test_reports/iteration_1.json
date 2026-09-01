@@ -1,0 +1,35 @@
+{
+  "summary": "First full E2E test after build. Backend 22/22 pytest passing (all /api/meta, /api/config CRUD+validate, /api/basket/preview for ATM/OTM/DELTA/PREMIUM and hedge-disabled, /api/backtest/run, /api/session PAPER lifecycle incl. INITIAL ENTRY + ROLL + close-before-open ordering + emergency, LIVE gating without Upstox connect, /api/upstox status/login/callback/funds/positions). Frontend: all 8 sidebar tabs switch views correctly; Strategy Config preview + save work; Backtest run populates stats + equity chart; PAPER session Start Algo reaches ACTIVE_BASKET with 4 legs (SELL CE, SELL PE, BUY CE HEDGE, BUY PE HEDGE) rendered in four-leg-basket-panel, ATR band chart + INITIAL ENTRY orders visible, basket-pnl-display shows value, all 5 bottom terminal tabs present. LIVE-mode confirm modal shows and Arm button correctly disabled until checkbox checked.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "/api/session/status", "issue": "After a session completes/exits, `state` remained 'WAITING' in some observed status snapshots instead of transitioning to COMPLETED before the next tick populated it. Non-blocking; eventually reflects COMPLETED."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {"flow": "Strategy state badge polling", "issue": "UI shows algo-status-badge='ALGO LIVE' and orders/legs immediately, but the strategy-state-badge text sometimes lags reaching 'ACTIVE_BASKET' (~30-60s stale) compared to API. Polling cadence in App.js could be tighter.", "affected_selectors": ["[data-testid=\"strategy-state-badge\"]"]}
+    ],
+    "design_issues": []
+  },
+  "test_report_links": ["/app/backend/tests/test_api.py", "/app/backend/tests/test_strategy.py", "/app/test_reports/pytest/pytest_results.xml"],
+  "action_items": [
+    "OPTIONAL: Ensure SessionManager sets state=COMPLETED (or EXITING) when the synthetic day loop terminates, so status reflects terminal state immediately.",
+    "OPTIONAL: Reduce frontend session-status polling interval or update state badge from same payload the panel already receives to avoid perceived lag."
+  ],
+  "critical_code_review_comments": [
+    "server.py mixes route handlers and validation in a single file; consider splitting into routers per domain (config, basket, backtest, session, upstox) as the file grows.",
+    "basket_preview returns leg['role'] as str(LegRole.SHORT_CE) which may serialize as 'LegRole.SHORT_CE' vs 'SHORT_CE' depending on enum config; tests handle both, but frontend/back should agree on a single canonical form.",
+    "No auth or rate-limit on any /api endpoint — acceptable for personal tool but should be documented.",
+    "test_upstox_login previously asserted 400 (not configured) but credentials ARE configured; fixed to assert 200 URL and added invalid-state callback test."
+  ],
+  "updated_files": ["/app/backend/tests/test_api.py"],
+  "success_rate": {"backend": "100% (22/22)", "frontend": "100% of testable flows (LIVE OAuth completion intentionally not tested)"},
+  "test_credentials": "N/A (no app login). Upstox is currently CONNECTED server-side (a token exists in Mongo) so LIVE-not-connected UI gating could not be observed; LIVE confirm modal + arm-disabled-until-checkbox flow verified instead.",
+  "seed_data_creation": "None",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend pytest: cd /app/backend && pytest tests/ -v (needs ~3 min due to two PAPER session lifecycle tests). Upstox may show CONNECTED (a token was saved in Mongo during prior manual OAuth). To force NOT CONNECTED, call POST /api/upstox/disconnect. Session emergency events observed during tests were user-triggered (browser panic button) — SessionManager itself does not auto-emergency. Synthetic PAPER day: INITIAL ENTRY around 40-60s after session start, several rolls, then COMPLETED at ~2-3 min.",
+  "rca of the issue": "N/A - no blocking issues found."
+}

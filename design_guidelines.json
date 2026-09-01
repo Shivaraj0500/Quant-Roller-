@@ -1,0 +1,193 @@
+{
+  "project_title": "Straddle ATR Band — Re-Centering Roller Automated Options Trading Terminal",
+  "archetype": "INSTITUTIONAL QUANTITATIVE WORKSTATION",
+  "app_type": "hybrid_fullstack",
+  "theme": "dark_pro",
+  "target_platform": "desktop_laptop_prioritized",
+  "design_principles": [
+    "High Data Density: Compact 1px bordered grid panels, zero unnecessary whitespace, dense tabular data layout.",
+    "Unmistakable Mode Hierarchy: LIVE trading mode triggers high-visibility hazardous amber/red outline + pulse status header, PAPER is crisp cyan/blue, BACKTEST is cool slate/purple.",
+    "Institutional Ergonomics: Monospaced numeric alignment (font-mono tabular-nums), sharp contrast, zero gradients, zero rounded consumer-fintech cards.",
+    "Financial Color Discipline: Strictly reserve Crimson Red (#EF4444) for loss/short/bearish/exit/emergency and Emerald Green (#10B981) for profit/long/bullish/entry. Use Amber (#F59E0B) for execution warnings and attention states.",
+    "Strict 1px Structural Grid: Border-collapse style technical paneling with #1E293B / #262626 strokes and high readability contrast."
+  ],
+  "typography": {
+    "heading_font": "JetBrains Mono, IBM Plex Mono, monospace",
+    "body_font": "Inter, system-ui, sans-serif",
+    "mono_font": "JetBrains Mono, IBM Plex Mono, Menlo, monospace",
+    "font_pairing_strategy": "Monospace for all financial metrics, ticker quotes, order sizes, strike prices, and log data. Clean sans-serif for secondary labels.",
+    "scale": {
+      "terminal_title": "text-lg font-bold tracking-tight uppercase font-mono",
+      "metric_hero": "text-2xl font-bold tracking-tight font-mono tabular-nums",
+      "metric_label": "text-xs font-semibold uppercase tracking-wider text-slate-400 font-mono",
+      "section_header": "text-xs font-bold uppercase tracking-widest text-slate-300 bg-slate-900/80 px-3 py-1.5 border-b border-slate-800",
+      "table_header": "text-[11px] font-semibold uppercase tracking-wider text-slate-400 font-mono",
+      "table_cell": "text-xs font-mono tabular-nums py-1.5 px-2 text-slate-200",
+      "badge": "text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-none font-mono"
+    }
+  },
+  "colors": {
+    "background_base": "#0B0E14",
+    "surface_panel": "#111622",
+    "surface_panel_header": "#182030",
+    "surface_card": "#151C2C",
+    "border_color": "#243046",
+    "border_highlight": "#3B82F6",
+    "text_primary": "#F1F5F9",
+    "text_secondary": "#94A3B8",
+    "text_muted": "#64748B",
+    "pnl_positive": "#10B981",
+    "pnl_positive_bg": "rgba(16, 185, 129, 0.12)",
+    "pnl_negative": "#EF4444",
+    "pnl_negative_bg": "rgba(239, 68, 68, 0.12)",
+    "pnl_neutral": "#94A3B8",
+    "modes": {
+      "LIVE": {
+        "badge_bg": "#7F1D1D",
+        "badge_text": "#FCA5A5",
+        "border_color": "#EF4444",
+        "header_accent": "bg-red-950/80 border-red-600/50 text-red-400 animate-pulse"
+      },
+      "PAPER": {
+        "badge_bg": "#0C4A6E",
+        "badge_text": "#38BDF8",
+        "border_color": "#0284C7",
+        "header_accent": "bg-sky-950/80 border-sky-600/50 text-sky-400"
+      },
+      "BACKTEST": {
+        "badge_bg": "#312E81",
+        "badge_text": "#A5B4FC",
+        "border_color": "#6366F1",
+        "header_accent": "bg-indigo-950/80 border-indigo-600/50 text-indigo-400"
+      }
+    },
+    "strategy_states": {
+      "WAITING": { "bg": "#1E293B", "text": "#94A3B8", "border": "#475569" },
+      "INITIAL_QUALIFICATION": { "bg": "#172554", "text": "#60A5FA", "border": "#2563EB" },
+      "ACTIVE_BASKET": { "bg": "#064E3B", "text": "#34D399", "border": "#059669" },
+      "ROLL_UP": { "bg": "#451A03", "text": "#FDBA74", "border": "#D97706" },
+      "ROLL_DOWN": { "bg": "#3B0764", "text": "#E9D5FF", "border": "#9333EA" },
+      "EXITING": { "bg": "#4C0519", "text": "#FDA4AF", "border": "#E11D48" },
+      "COMPLETED": { "bg": "#14532D", "text": "#86EFAC", "border": "#16A34A" },
+      "EXECUTION_ATTENTION": { "bg": "#78350F", "text": "#FDE047", "border": "#EAB308" },
+      "ERROR": { "bg": "#7F1D1D", "text": "#FCA5A5", "border": "#DC2626" }
+    }
+  },
+  "layout_structure": {
+    "app_shell": "flex flex-col h-screen overflow-hidden bg-[#0B0E14] text-slate-100 font-sans selection:bg-blue-600 selection:text-white",
+    "top_header": "h-12 bg-[#111622] border-b border-[#243046] px-3 flex items-between items-center gap-3 shrink-0 z-40 select-none",
+    "main_container": "flex flex-1 overflow-hidden min-h-0",
+    "left_sidebar": "w-56 bg-[#0E121B] border-r border-[#243046] flex flex-col justify-between shrink-0 select-none",
+    "center_workspace": "flex-1 flex flex-col min-w-0 overflow-hidden bg-[#0B0E14]",
+    "chart_and_right_panel": "flex-1 flex min-h-0 overflow-hidden",
+    "main_chart_area": "flex-1 flex flex-col min-w-0 border-r border-[#243046] bg-[#0B0E14] relative",
+    "right_status_panel": "w-80 bg-[#111622] border-l border-[#243046] flex flex-col shrink-0 overflow-y-auto min-h-0 divide-y divide-[#243046]",
+    "bottom_terminal": "h-64 bg-[#0E121B] border-t border-[#243046] flex flex-col shrink-0 min-w-0 overflow-hidden"
+  },
+  "key_components": [
+    {
+      "name": "TopHeaderBar",
+      "description": "Displays App Brand 'QUANT-ROLLER PRO v2.4', Upstox Connection Status (API Ping / Token Valid), Live Data WebSockets indicator, Live Market Clock (IST), Trading Mode Toggle (BACKTEST | PAPER | LIVE), Algo Status Pill, and Quick Lock/Emergency trigger.",
+      "data_testids": [
+        "top-header-bar",
+        "upstox-status-indicator",
+        "trading-mode-selector",
+        "algo-status-badge",
+        "emergency-squareoff-header-btn"
+      ]
+    },
+    {
+      "name": "LeftNavigationArea",
+      "description": "Tab menu switching between Terminal, Strategy Config, Backtest Engine, Positions Blotter, Order Book, Trade History, System Logs, and Upstox Settings + Algo Controller Action Group (START ALGO, STOP ALGO, EMERGENCY SQUARE-OFF).",
+      "data_testids": [
+        "nav-terminal-tab",
+        "nav-strategy-tab",
+        "nav-backtest-tab",
+        "nav-positions-tab",
+        "nav-orders-tab",
+        "nav-trades-tab",
+        "nav-logs-tab",
+        "nav-settings-tab",
+        "btn-start-algo",
+        "btn-stop-algo",
+        "btn-emergency-squareoff"
+      ]
+    },
+    {
+      "name": "MainMarketStrategyChart",
+      "description": "Interactive quantitative candlestick chart rendering NIFTY/BANKNIFTY spot price, dynamic Straddle Center Line, Upper ATR Band, Lower ATR Band, Initial Entry Marker, Roll Up/Down Markers, and Exit Markers with interval switches (1m, 3m, 5m, 15m) and indicator toggles.",
+      "data_testids": [
+        "strategy-candlestick-chart",
+        "chart-interval-1m",
+        "chart-interval-3m",
+        "chart-interval-5m",
+        "chart-toggle-atr-bands",
+        "chart-toggle-center-line"
+      ]
+    },
+    {
+      "name": "RightStrategyStatusPanel",
+      "description": "Detailed realtime breakdown: Strategy State Badge (WAITING...ACTIVE_BASKET...ROLL_UP), Current Spot vs Center Strike, ATR Distance to Upper/Lower boundaries, Total Basket P&L (MTM), Max Profit / Max Loss metrics, Account Balance & Margin Utilized from Upstox API.",
+      "data_testids": [
+        "strategy-state-badge",
+        "basket-pnl-display",
+        "atr-upper-bound-val",
+        "atr-lower-bound-val",
+        "center-strike-val",
+        "account-available-margin",
+        "account-used-margin"
+      ]
+    },
+    {
+      "name": "FourLegBasketPanel",
+      "description": "Dedicated 4-leg visual card/table displaying leg status: Short CE, Short PE, Long CE Hedge, Long PE Hedge with per-leg strike, expiry, lot count, avg execution price, LTP, leg MTM, and Upstox order ID.",
+      "data_testids": [
+        "four-leg-basket-panel",
+        "leg-short-ce-row",
+        "leg-short-pe-row",
+        "leg-long-ce-row",
+        "leg-long-pe-row"
+      ]
+    },
+    {
+      "name": "BottomExecutionTerminal",
+      "description": "Tabbed Blotter System (ORDERS, POSITIONS, TRADES, EVENTS, ERRORS) featuring high-density compact tables, filter inputs, live execution status indicators, and CSV export buttons.",
+      "data_testids": [
+        "execution-terminal-tabs",
+        "tab-orders-list",
+        "tab-positions-list",
+        "tab-trades-list",
+        "tab-events-log",
+        "tab-errors-log",
+        "order-table-row",
+        "position-table-row"
+      ]
+    },
+    {
+      "name": "LiveTradingConfirmationModal",
+      "description": "High-risk confirmation dialog triggered when switching to LIVE mode or executing Emergency Square-off, requiring double acknowledgement and Upstox PIN/TOTP validation warning.",
+      "data_testids": [
+        "live-mode-confirm-modal",
+        "live-mode-confirm-checkbox",
+        "live-mode-confirm-submit",
+        "emergency-confirm-submit"
+      ]
+    }
+  ],
+  "image_urls": [
+    {
+      "url": "https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2NzB8MHwxfHNlYXJjaHwxfHxmaW5hbmNpYWwlMjBjaGFydCUyMHF1YW50aXRhdGl2ZSUyMHRyYWRpbmd8ZW58MHx8fHwxNzg4MjkzMDIwfDA&ixlib=rb-4.1.0&q=85",
+      "description": "Candlestick quantitative chart background preview",
+      "category": "chart_preview"
+    }
+  ],
+  "instructions_to_main_agent": [
+    "Use pure dark quantitative workstation aesthetic. DO NOT use light mode or consumer colorful cards.",
+    "Ensure all numbers are monospaced with tabular numerals (font-mono tabular-nums) to prevent jumping when ticks arrive.",
+    "Implement real-time market data simulation or Upstox tick feed mock if backend API disconnects, keeping the UI alive.",
+    "Borders must be 1px solid (#243046 or slate-800). Radii must be minimal (rounded-sm or rounded-none) for a technical terminal feel.",
+    "Ensure every interactive button, input, tab, metric, and status badge includes its exact data-testid as specified.",
+    "Add visual flash effects on price updates (e.g. subtle green/red text highlight flash on price ticks).",
+    "Keep layout rigid and fixed to 100vh desktop viewports without horizontal page scrollbars."
+  ]
+}
