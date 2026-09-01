@@ -116,37 +116,67 @@ async def basket_preview(cfg: StrategyConfig):
     errs = _validate(cfg)
     if errs:
         raise HTTPException(400, {"errors": errs})
+    import math
     spec = INSTRUMENTS[cfg.instrument]
     now = datetime.now()
-    day = now.replace(hour=0, minute=0, second=0, microsecond=0)
-    candles = synthetic_candles(cfg.instrument, day, cfg.timeframe, seed=42)
-    highs = [c["h"] for c in candles]; lows = [c["l"] for c in candles]; closes = [c["c"] for c in candles]
-    ind = compute_indicators(highs, lows, closes, cfg.adx_period, cfg.atr_period)
-    import math
-    atr = next((float(ind["atr"][k]) for k in range(len(candles) - 1, -1, -1)
-                if not math.isnan(ind["atr"][k])), spec["ref_price"] * 0.006)
-    spot = SESSION.spot if SESSION.running else closes[-1]
-    ts = now
-    chain, expiry = synthetic_chain_at(cfg.instrument, spot, ts, cfg.expiry)
+    connected = await ux.is_connected(db)
+
+    if connected:
+        try:
+            import market_data as md
+            meta = await md.resolve_contract(db, cfg.instrument, cfg.expiry)
+            expiry = meta["expiry"]
+            lot_size = meta["lot_size"]
+            chain, spot = await md.chain_snapshot(db, cfg.instrument, expiry)
+            # ATR from real candles: intraday first, else recent history.
+            rc = await md.underlying_intraday(db, cfg.instrument, cfg.timeframe)
+            if len([c for c in rc]) < cfg.atr_period + 2:
+                frm = (now - timedelta(days=7)).strftime("%Y-%m-%d")
+                rc = await md.underlying_history(db, cfg.instrument, cfg.timeframe,
+                                                 frm, now.strftime("%Y-%m-%d"))
+            if rc:
+                ind = compute_indicators([c["h"] for c in rc], [c["l"] for c in rc],
+                                         [c["c"] for c in rc], cfg.adx_period, cfg.atr_period)
+                atr = next((float(ind["atr"][k]) for k in range(len(rc) - 1, -1, -1)
+                            if not math.isnan(ind["atr"][k])), spot * 0.006)
+            else:
+                atr = spot * 0.006
+            source = "UPSTOX"
+            note = "Live Upstox option chain — strikes, premiums (LTP) and deltas are real."
+        except Exception as e:
+            raise HTTPException(400, f"Upstox chain error: {e}")
+    else:
+        lot_size = spec["lot_size"]
+        day = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        candles = synthetic_candles(cfg.instrument, day, cfg.timeframe, seed=42)
+        ind = compute_indicators([c["h"] for c in candles], [c["l"] for c in candles],
+                                 [c["c"] for c in candles], cfg.adx_period, cfg.atr_period)
+        atr = next((float(ind["atr"][k]) for k in range(len(candles) - 1, -1, -1)
+                    if not math.isnan(ind["atr"][k])), spec["ref_price"] * 0.006)
+        spot = SESSION.spot if (SESSION.running and SESSION.data_source == "SYNTHETIC") else candles[-1]["c"]
+        chain, expiry = synthetic_chain_at(cfg.instrument, spot, now, cfg.expiry)
+        source = "SYNTHETIC"
+        note = "Synthetic Black-Scholes preview (Upstox not connected). Real strikes/premiums resolve from the live Upstox chain when connected."
+
     center = spot
-    short_ce, short_pe = select_short_legs(chain, center, cfg, expiry, spec["lot_size"])
+    short_ce, short_pe = select_short_legs(chain, center, cfg, expiry, lot_size)
     legs = [short_ce, short_pe]
     if cfg.hedge_enabled:
-        h_ce, h_pe = select_hedge_legs(chain, short_ce, short_pe, cfg, expiry, spec["lot_size"])
+        h_ce, h_pe = select_hedge_legs(chain, short_ce, short_pe, cfg, expiry, lot_size)
         legs += [h_ce, h_pe]
     upper = center + atr * cfg.atr_multiplier
     lower = center - atr * cfg.atr_multiplier
-    est_premium = sum((1 if l.side == "SELL" else -1) * l.entry_price * l.quantity for l in legs)
+    est_premium = sum((1 if l.side.value == "SELL" else -1) * l.entry_price * l.quantity for l in legs)
     return {
         "instrument": cfg.instrument, "expiry": expiry, "spot": round(spot, 2),
         "center": round(center, 2), "atr": round(atr, 2),
         "upper": round(upper, 2), "lower": round(lower, 2),
-        "lot_size": spec["lot_size"], "lots": cfg.lots,
-        "total_qty": spec["lot_size"] * cfg.lots,
+        "lot_size": lot_size, "lots": cfg.lots,
+        "total_qty": lot_size * cfg.lots,
         "net_premium": round(est_premium, 2),
-        "note": "Synthetic Black-Scholes preview. Actual strikes/premiums resolve from the live Upstox chain when connected.",
+        "data_source": source, "note": note,
         "legs": [{
-            "role": str(l.role), "type": str(l.option_type), "side": l.side,
+            "role": l.role.value, "type": l.option_type.value, "side": l.side.value,
             "strike": l.strike, "expiry": l.expiry, "qty": l.quantity, "lots": l.lots,
             "premium": l.entry_price, "delta": l.delta, "method": l.method, "metric": l.metric,
         } for l in legs],
@@ -166,13 +196,28 @@ async def backtest_run(payload: dict = Body(...)):
         end_dt = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
         start_dt = end_dt - timedelta(days=14)
         start, end = start_dt.strftime("%Y-%m-%d"), end_dt.strftime("%Y-%m-%d")
-    candles = synthetic_range(cfg.instrument, start, end, cfg.timeframe)
-    if not candles:
-        raise HTTPException(400, "No candles in selected range")
+
+    connected = await ux.is_connected(db)
+    if connected:
+        try:
+            import market_data as md
+            candles = await md.underlying_history(db, cfg.instrument, cfg.timeframe, start, end)
+            source = "UPSTOX"
+            note = "Real Upstox historical underlying candles. Option legs are model-priced (Black-Scholes) as Upstox does not expose historical option greeks/chain."
+        except Exception as e:
+            raise HTTPException(400, f"Upstox historical data error: {e}")
+        if not candles:
+            raise HTTPException(400, "Upstox returned no historical candles for this range (retention/non-trading days).")
+    else:
+        candles = synthetic_range(cfg.instrument, start, end, cfg.timeframe)
+        source = "SYNTHETIC"
+        note = "Synthetic historical data (Upstox not connected). Connect Upstox for real historical candles."
+        if not candles:
+            raise HTTPException(400, "No candles in selected range")
+
     result = run_backtest(cfg, candles, cfg.instrument)
     result["meta"] = {"start": start, "end": end, "instrument": cfg.instrument,
-                      "timeframe": cfg.timeframe,
-                      "note": "Synthetic historical data. Connect Upstox for real historical candles."}
+                      "timeframe": cfg.timeframe, "data_source": source, "note": note}
     return result
 
 

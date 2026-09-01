@@ -12,6 +12,7 @@ import httpx
 from cryptography.fernet import Fernet
 
 API = "https://api.upstox.com/v2"
+V3 = "https://api.upstox.com/v3"
 HFT = "https://api-hft.upstox.com/v2"
 
 _IST = timezone(timedelta(hours=5, minutes=30))
@@ -140,13 +141,33 @@ async def ltp(db, instrument_keys: str):
     return await _get(db, "/market-quote/ltp", {"instrument_key": instrument_keys})
 
 
+async def _get_v3(db, path: str, params=None):
+    token = await get_token(db)
+    if not token:
+        raise PermissionError("Upstox not connected")
+    async with httpx.AsyncClient(timeout=25) as c:
+        r = await c.get(V3 + path, params=params,
+                        headers={"Authorization": f"Bearer {token}", "Accept": "application/json"})
+    if r.status_code == 401:
+        raise PermissionError("Upstox token expired; reconnect")
+    r.raise_for_status()
+    return r.json()
+
+
 async def historical_candles(db, instrument_key: str, unit: str, interval: int,
                              to_date: str, from_date: Optional[str] = None):
+    """V3 historical candles. unit=minutes|days|weeks; interval e.g. 1,3,5,15."""
     key = urllib.parse.quote(instrument_key, safe="")
     path = f"/historical-candle/{key}/{unit}/{interval}/{to_date}"
     if from_date:
         path += f"/{from_date}"
-    return await _get(db, path)
+    return await _get_v3(db, path)
+
+
+async def intraday_candles(db, instrument_key: str, unit: str, interval: int):
+    """V3 intraday (current day) candles. unit=minutes|days; interval e.g. 1,3,5,15."""
+    key = urllib.parse.quote(instrument_key, safe="")
+    return await _get_v3(db, f"/historical-candle/intraday/{key}/{unit}/{interval}")
 
 
 async def positions(db):

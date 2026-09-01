@@ -121,6 +121,11 @@ export default function App() {
                       ))}
                     </div>
                     <span className="text-[10px] font-mono text-slate-600 ml-2">ATR bands · center · markers</span>
+                    {s.data_source && (running || s.state !== "WAITING") ? (
+                      <span data-testid="data-source-badge" className={`ml-2 px-2 py-0.5 text-[9.5px] font-mono font-bold border ${s.data_source === "UPSTOX" ? "border-emerald-700 text-emerald-400 bg-emerald-950/40" : "border-slate-600 text-slate-400"}`}>
+                        DATA: {s.data_source}{s.expiry ? ` · ${s.expiry}` : ""}
+                      </span>
+                    ) : null}
                   </div>
                   <CandleChart candles={s.candles || []} center={s.center} upper={s.upper} lower={s.lower} events={s.events || []} spot={s.spot} />
                 </div>

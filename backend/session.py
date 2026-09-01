@@ -18,8 +18,11 @@ from models import (INSTRUMENTS, OrderStatus, Side, StrategyConfig, StrategyStat
                     TradingMode)
 from options import price_leg_from_chain
 from providers import synthetic_candles, synthetic_chain_at
+import market_data as md
+import upstox_api as ux
 
-TICK_SECONDS = 1.5  # accelerated demo clock
+TICK_SECONDS = 1.5      # accelerated synthetic demo clock
+REAL_POLL_SECONDS = 12  # live Upstox poll cadence
 
 
 class SessionManager:
@@ -34,6 +37,10 @@ class SessionManager:
         self.cfg: Optional[StrategyConfig] = None
         self.engine: Optional[StrategyEngine] = None
         self.instrument = "NIFTY"
+        self.data_source = "SYNTHETIC"
+        self.lot_size = 0
+        self.expiry_resolved: Optional[str] = None
+        self._last_ts: Optional[str] = None
         self.candles: List[dict] = []
         self._all_day: List[dict] = []
         self._idx = 0
@@ -60,13 +67,39 @@ class SessionManager:
         self.cfg = cfg
         self.instrument = cfg.instrument
         self.engine = StrategyEngine(cfg)
-        # Build a full synthetic trading day the feed will stream candle by candle.
-        today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
-        self._all_day = self._pick_qualifying_day(today, cfg)
-        self._idx = 0
-        self.running = True
-        self._log(self.events, type="SESSION START", reason=f"{mode} session started")
-        self._task = asyncio.create_task(self._loop())
+
+        connected = False
+        try:
+            connected = await ux.is_connected(self.db)
+        except Exception:
+            connected = False
+
+        # LIVE always uses real data (gated upstream). PAPER uses real data when
+        # connected, otherwise the synthetic offline feed. BACKTEST is separate.
+        use_real = connected and mode in (TradingMode.PAPER.value, TradingMode.LIVE.value)
+
+        if use_real:
+            meta = await md.resolve_contract(self.db, self.instrument, cfg.expiry)
+            self.data_source = "UPSTOX"
+            self.lot_size = meta["lot_size"]
+            self.expiry_resolved = meta["expiry"]
+            self.cfg.expiry = meta["expiry"]
+            self.running = True
+            self._log(self.events, type="SESSION START",
+                      reason=f"{mode} session · UPSTOX live data · expiry {meta['expiry']}")
+            self._task = asyncio.create_task(self._loop_real())
+        else:
+            if mode == TradingMode.LIVE.value:
+                raise RuntimeError("LIVE requires a valid Upstox connection")
+            self.data_source = "SYNTHETIC"
+            self.lot_size = INSTRUMENTS[self.instrument]["lot_size"]
+            today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+            self._all_day = self._pick_qualifying_day(today, cfg)
+            self._idx = 0
+            self.running = True
+            self._log(self.events, type="SESSION START",
+                      reason=f"{mode} session · SYNTHETIC feed (Upstox not connected)")
+            self._task = asyncio.create_task(self._loop_synthetic())
 
     def _pick_qualifying_day(self, day, cfg):
         """Pick a synthetic day where the initial ADX qualification is reachable,
@@ -98,10 +131,14 @@ class SessionManager:
             self._task.cancel()
         self._log(self.events, type="SESSION STOP", reason="Algo stopped by user")
 
-    async def _loop(self):
+    async def _loop_synthetic(self):
         try:
             while self.running and self._idx < len(self._all_day):
-                await self._step()
+                candle = self._all_day[self._idx]
+                self.candles.append(candle)
+                ts_dt = datetime.fromisoformat(candle["ts"])
+                chain, _ = synthetic_chain_at(self.instrument, candle["c"], ts_dt, self.cfg.expiry)
+                await self._process(candle, chain)
                 self._idx += 1
                 await asyncio.sleep(TICK_SECONDS)
             self.running = False
@@ -113,9 +150,52 @@ class SessionManager:
                 self.engine.set_error(str(e))
             self._log(self.errors, type="LOOP ERROR", reason=str(e))
 
-    async def _step(self):
-        candle = self._all_day[self._idx]
-        self.candles.append(candle)
+    async def _loop_real(self):
+        """Poll real Upstox intraday candles; act on each newly CLOSED candle and
+        mark-to-market from the live option chain in between."""
+        try:
+            self.candles = await md.underlying_intraday(self.db, self.instrument, self.cfg.timeframe)
+            if self.candles:
+                self._last_ts = self.candles[-1]["ts"]
+                chain, spot = await md.chain_snapshot(self.db, self.instrument, self.expiry_resolved)
+                await self._process(self.candles[-1], chain)
+            while self.running:
+                await asyncio.sleep(REAL_POLL_SECONDS)
+                if not self.running:
+                    break
+                try:
+                    latest = await md.underlying_intraday(self.db, self.instrument, self.cfg.timeframe)
+                    chain, spot = await md.chain_snapshot(self.db, self.instrument, self.expiry_resolved)
+                except PermissionError as e:
+                    self.engine.set_error(str(e))
+                    self._log(self.errors, type="DATA ERROR", reason=str(e))
+                    self.running = False
+                    break
+                except Exception as e:
+                    self._log(self.errors, type="DATA FEED", reason=str(e))
+                    continue
+                new = [c for c in latest if self._last_ts is None or c["ts"] > self._last_ts]
+                if new:
+                    for c in new:
+                        self.candles.append(c)
+                        self._last_ts = c["ts"]
+                    await self._process(self.candles[-1], chain)
+                elif self.engine.basket:
+                    for leg in self.engine.basket.legs:
+                        leg.current_price = price_leg_from_chain(leg, chain)
+                    self.basket_pnl = round(self.engine.basket.mtm(), 2)
+            self.running = False
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:  # surface, never hide
+            self.running = False
+            if self.engine:
+                self.engine.set_error(str(e))
+            self._log(self.errors, type="LOOP ERROR", reason=str(e))
+
+    async def _process(self, candle: dict, chain: list):
+        """Shared per-candle processing for synthetic and real feeds. Acts on the
+        latest candle in self.candles (already appended by the caller)."""
         self.prev_spot = self.spot
         self.spot = candle["c"]
         ts_dt = datetime.fromisoformat(candle["ts"])
@@ -125,9 +205,8 @@ class SessionManager:
         closes = [c["c"] for c in self.candles]
         ind = compute_indicators(highs, lows, closes, self.cfg.adx_period, self.cfg.atr_period)
         i = len(self.candles) - 1
-        chain, expiry = synthetic_chain_at(self.instrument, self.spot, ts_dt, self.cfg.expiry)
 
-        # Mark-to-market current basket
+        # Mark-to-market current basket from the same chain snapshot.
         if self.engine.basket:
             for leg in self.engine.basket.legs:
                 leg.current_price = price_leg_from_chain(leg, chain)
@@ -136,7 +215,7 @@ class SessionManager:
         ctx = Context(ts=ts_dt, o=candle["o"], h=candle["h"], l=candle["l"], c=candle["c"],
                       adx=_v(ind["adx"], i), plus_di=_v(ind["plus_di"], i),
                       minus_di=_v(ind["minus_di"], i), atr=_v(ind["atr"], i),
-                      chain=chain, lot_size=INSTRUMENTS[self.instrument]["lot_size"])
+                      chain=chain, lot_size=self.lot_size)
         dec = self.engine.evaluate(ctx)
 
         if dec.action == Action.ENTER:
@@ -145,8 +224,7 @@ class SessionManager:
                 self.engine.on_enter_filled(dec)
                 self._mark_event(candle["ts"], "INITIAL ENTRY", dec)
         elif dec.action in (Action.ROLL_UP, Action.ROLL_DOWN):
-            closed = await self._execute_close(self.engine.basket, candle["ts"],
-                                               f"{dec.action}")
+            closed = await self._execute_close(self.engine.basket, candle["ts"], f"{dec.action}")
             if closed:
                 ok = await self._execute_open(dec, dec.action, candle["ts"])
                 if ok:
@@ -277,6 +355,9 @@ class SessionManager:
             }
         return {
             "mode": self.mode, "running": self.running,
+            "data_source": self.data_source,
+            "expiry": self.expiry_resolved,
+            "lot_size": self.lot_size,
             "state": str(eng.state.value) if eng else "WAITING",
             "attention": eng.attention_reason if eng else None,
             "instrument": self.instrument,

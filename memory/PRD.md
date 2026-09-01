@@ -36,8 +36,9 @@ Personal-use automated intraday options trading terminal for ONE strategy: "Stra
 - ✅ Full E2E tested: backend 100% (22/22 API + 23 invariants), frontend 100% of testable flows.
 
 ## Known limitations / MOCKED
-- Backtest & Paper run on a **synthetic data provider** + Black-Scholes chain (real Upstox historical/live data requires interactive OAuth + market hours). Clearly labeled in UI.
-- Paper/Live intraday tick feed uses an accelerated **synthetic clock** for demonstrability; real Upstox order execution path is implemented but not auto-testable (needs live OAuth).
+- **Real Upstox data is now wired** (`market_data.py`): Backtest uses real V3 historical underlying candles; Paper/Live use real V3 intraday candles + real V2 option chain (LTP/delta) + real contract resolution (lot size/expiry/instrument keys) when connected. Synthetic provider is now only the OFFLINE fallback (used when Upstox is not connected).
+- Backtest option-leg premiums are model-priced (Black-Scholes on the real underlying) because Upstox does not expose historical option greeks/chain snapshots; clearly labeled in the results note.
+- Paper/Live intraday candles only populate during market hours (Upstox intraday returns today's candles). Outside market hours the session correctly stays WAITING with no data.
 
 ## Backlog (not built — outside current scope unless requested)
 - P1: Real Upstox historical-candle + live-quote adapters wired into backtest/paper (replace synthetic) once user validates with a live token during market hours.
